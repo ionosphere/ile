@@ -1,0 +1,4 @@
+# Photos de référence de personnes réelles : jamais dans le dépôt.
+doc/
+.claude/
+node_modules/

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ILE</title>
+<meta name="description" content="ILE : un jeu de peinture à la ferme. Peins le terrain, file dans ta peinture en chat, grimpe aux murs.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='24' fill='%23ff5233'/%3E%3Cpath d='M12 22 18 4l14 12zM52 22 46 4 32 16z' fill='%23ff5233'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles/ui.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="touch">
+  <div id="stick" class="hidden"><div id="stick-knob"></div></div>
+  <button id="touch-pause" type="button" data-action="pause" aria-label="Pause">II</button>
+  <button class="pad pad-fire" type="button" data-action="fire">Peindre</button>
+  <button class="pad pad-jump" type="button" data-action="jump">Saut</button>
+  <button class="pad pad-cat" type="button" data-action="cat" aria-pressed="false">Chat</button>
+  <button id="touch-special" class="pad pad-special" type="button" data-action="special">Capacité</button>
+  <button id="touch-goats" class="pad pad-goats" type="button" data-action="goats">Chèvres</button>
+</div>
+<div id="rotate">Tourne ton téléphone à l'horizontale</div>
+
+<div id="hud">
+  <div id="vignette"></div>
+  <div id="crosshair"></div>
+  <div id="scores">
+    <span id="score-1" class="score team-1">0 %</span>
+    <span id="timer">3:00</span>
+    <span id="score-2" class="score team-2">0 %</span>
+  </div>
+  <canvas id="minimap" aria-label="Carte du terrain"></canvas>
+  <div id="banner" class="hidden"></div>
+  <div id="status" class="hidden"></div>
+  <div id="gauges">
+    <div id="goats" class="gauge">
+      <span class="gauge-key">F</span>
+      <span class="gauge-name">Chèvres</span>
+      <div class="gauge-bar"><div id="goats-fill" class="gauge-fill"></div></div>
+    </div>
+    <div id="special" class="gauge hidden">
+      <span class="gauge-key">E</span>
+      <span id="special-name" class="gauge-name"></span>
+      <div class="gauge-bar"><div id="special-fill" class="gauge-fill"></div></div>
+    </div>
+  </div>
+  <div id="ink" title="Réservoir de peinture"><div id="ink-fill"></div></div>
+</div>
+
+<div id="select" class="overlay">
+  <div class="panel wide">
+    <h1>ILE</h1>
+    <p class="lead">Choisis ta carte, puis ton héroïne</p>
+    <div id="maps"></div>
+    <div class="choice-row"><span class="choice-label">Adversaires</span><div id="levels"></div></div>
+    <div id="cards"></div>
+    <div class="menu-row">
+      <button id="open-lobby" class="button quiet" type="button">Jouer à plusieurs</button>
+      <button id="open-tutorial" class="button quiet" type="button">Comment jouer</button>
+      <button id="open-settings" class="button quiet" type="button">Réglages</button>
+    </div>
+    <p class="keys only-keys"><b>ZQSD</b> se déplacer · <b>Souris</b> viser · <b>Clic</b> peindre · <b>Maj</b> forme chat · <b>Espace</b> sauter · <b>E</b> capacité · <b>F</b> chèvres · <b>Échap</b> pause</p>
+  </div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="panel">
+    <h1>Pause</h1>
+    <p class="lead"><span class="only-keys">Clique</span><span class="only-touch">Touche l'écran</span> pour reprendre</p>
+    <p class="only-touch">Pouce gauche : se déplacer. Pouce droit : viser en glissant, y compris depuis le bouton Peindre. Le viseur est légèrement attiré vers les adversaires et le tir part tout seul quand l'une d'elles est dedans.</p>
+    <dl class="only-keys">
+      <dt>ZQSD</dt><dd>se déplacer</dd>
+      <dt>Souris</dt><dd>viser</dd>
+      <dt>Clic gauche</dt><dd>peindre</dd>
+      <dt>Maj</dt><dd>forme chat : file dans ta peinture, grimpe aux murs peints, recharge</dd>
+      <dt>Espace</dt><dd>sauter</dd>
+      <dt>E</dt><dd>capacité spéciale, quand la jauge est pleine</dd>
+      <dt>F</dt><dd>lâcher de chèvres, quand leur jauge est pleine</dd>
+    </dl>
+    <div class="menu-row">
+      <button id="pause-settings" class="button quiet" type="button">Réglages</button>
+      <button id="pause-quit" class="button quiet" type="button">Quitter le match</button>
+    </div>
+    <p class="only-net">En réseau, le match continue pendant la pause.</p>
+  </div>
+</div>
+
+<div id="results" class="overlay hidden">
+  <div class="panel">
+    <h1 id="results-title"></h1>
+    <div class="results-bar"><div id="results-bar-1"></div><div id="results-bar-2"></div></div>
+    <div class="results-row">
+      <span><b id="results-name-1"></b> <span id="results-score-1"></span></span>
+      <span><span id="results-score-2"></span> <b id="results-name-2"></b></span>
+    </div>
+    <button id="replay" class="button only-solo" type="button">Rejouer</button>
+    <button id="change" class="button quiet only-solo" type="button">Changer d'héroïne</button>
+    <p class="only-net">Retour au salon dans quelques secondes…</p>
+  </div>
+</div>
+
+<div id="lobby" class="overlay hidden"><div id="lobby-panel" class="panel wide"></div></div>
+<div id="tutorial" class="overlay hidden"><div id="tutorial-panel" class="panel"></div></div>
+<div id="settings" class="overlay hidden"><div id="settings-panel" class="panel"></div></div>
+
+<div id="boot-error"></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

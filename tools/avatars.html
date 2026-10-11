@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>ILE : planche des avatars</title>
+<style>html, body, #app { margin: 0; height: 100%; overflow: hidden; }</style>
+<script type="importmap">
+{ "imports": { "three": "../vendor/three/build/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+// Planche de contrôle : les trois héroïnes côte à côte, de face puis de dos.
+// Paramètres d'adresse : ?pose=course|tir|rouleau|repos  &vue=face|dos|profil  &zoom=1
+import * as THREE from 'three';
+import { createRenderer } from '../src/render/renderer.js';
+import { ActorView } from '../src/render/actorView.js';
+import { CHARACTERS, CHARACTER_IDS } from '../src/config/characters.js';
+import { WEAPONS } from '../src/config/weapons.js';
+import { MAPS } from '../src/config/maps/index.js';
+
+const params = new URLSearchParams(location.search);
+const pose = params.get('pose') ?? 'repos';
+const vue = params.get('vue') ?? 'face';
+const zoom = Number(params.get('zoom') ?? 1);
+
+const { renderer, scene, camera, setTheme, setShadows } = createRenderer(document.getElementById('app'));
+setTheme(MAPS.ferme.theme);
+setShadows(true);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshStandardMaterial({ color: '#9a978c', roughness: 0.95 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const yaw = { face: Math.PI, dos: 0, profil: -Math.PI / 2, trois: Math.PI - 0.6 }[vue];
+const views = CHARACTER_IDS.map((id, i) => {
+  const character = CHARACTERS[id];
+  const x = (1 - i) * 1.5;
+  const speed = pose === 'course' || pose === 'rouleau' ? 6 : 0;
+  const actor = {
+    character, weapon: WEAPONS[character.weapon], team: i === 1 ? 2 : 1, alive: true, form: 'human',
+    pos: { x, y: 0, z: 0 }, prev: { x, y: 0, z: 0 }, vel: { x: -Math.sin(yaw) * speed, y: 0, z: -Math.cos(yaw) * speed },
+    yaw, pitch: 0, grounded: true, firing: pose === 'tir' || pose === 'rouleau', rolling: pose === 'rouleau' && character.weapon === 'rouleau',
+    charge: pose === 'tir' ? 0.5 : 0, forced: null, ink: 70, inkMax: 100, sinceDamage: 9, submerged: false, climbing: false,
+    specialT: 0, revealedT: 0, height: 1.45 * character.scale,
+  };
+  const view = new ActorView(actor, 1, false);
+  scene.add(view.group);
+  return view;
+});
+
+camera.fov = 30;
+camera.position.set(0, 1.25, 6.2 / zoom);
+camera.lookAt(0, zoom > 1.5 ? 1.45 : 0.95, 0);
+camera.updateProjectionMatrix();
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  for (const v of views) v.update(1, dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

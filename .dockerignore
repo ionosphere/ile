@@ -1,0 +1,7 @@
+# Seuls les fichiers copiés par le Dockerfile sont utiles ; les photos de référence ne doivent jamais partir.
+doc
+tests
+tools
+.git
+.claude
+*.md
