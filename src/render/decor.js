@@ -120,15 +120,41 @@ function ferme() {
   meadow.rotation.x = -Math.PI / 2;
   meadow.receiveShadow = true;
   g.add(meadow);
-  const crops = ['#d9c56a', '#8fb85a', '#a98a55', '#c9d27a', '#6f9c4a', '#b9a05c'];
-  for (let i = 0; i < 26; i++) {
+  // au-delà : de grandes parcelles de céréales dorées par le soir, marquées par les passages du tracteur
+  const crops = ['#d9c56a', '#cdbb62', '#a9b85a', '#e0cf7c', '#8fae55', '#c9b35e'];
+  const track = std('#b9a04f', 1);
+  for (let i = 0; i < 22; i++) {
     const ang = rng() * 6.28;
-    const dist = 90 + rng() * 240;
-    const field = mesh(new THREE.PlaneGeometry(40 + rng() * 70, 30 + rng() * 60), std(crops[i % crops.length], 1), Math.cos(ang) * dist, -0.04 + i * 0.0005, Math.sin(ang) * dist, false);
-    field.rotation.x = -Math.PI / 2;
-    field.rotation.z = rng() * 3;
+    const dist = 110 + rng() * 230;
+    const w = 60 + rng() * 90;
+    const d = 50 + rng() * 70;
+    const field = new THREE.Group();
+    const ground = mesh(new THREE.PlaneGeometry(w, d), std(crops[i % crops.length], 1), 0, 0, 0, false);
+    ground.rotation.x = -Math.PI / 2;
+    field.add(ground);
+    for (let k = -2; k <= 2; k++) {
+      const line = mesh(new THREE.PlaneGeometry(w * 0.96, 0.7), track, 0, 0.01, (k * d) / 5.5, false);
+      line.rotation.x = -Math.PI / 2;
+      field.add(line);
+    }
+    field.position.set(Math.cos(ang) * dist, -0.04 + i * 0.0005, Math.sin(ang) * dist);
+    field.rotation.y = rng() * 3;
     g.add(field);
   }
+  // à l'ouest : le maraîchage, en longues planches de couleurs différentes
+  const beds = ['#6f9c4a', '#80603f', '#8fb85a', '#5e8f52', '#9a7a52', '#a9c46a', '#4f8a4a', '#8b6a45'];
+  for (let i = 0; i < 16; i++) {
+    const bed = mesh(new THREE.PlaneGeometry(3.4, 46 + rng() * 14), std(beds[i % beds.length], 1), -42 - i * 3.8, -0.02, -4 + rng() * 6, false);
+    bed.rotation.x = -Math.PI / 2;
+    g.add(bed);
+  }
+  // à l'est et au sud : le bois, serré
+  for (let i = 0; i < 70; i++) {
+    const x = 44 + rng() * 90;
+    const z = -70 + rng() * 150;
+    g.add(tree(rng, x, z, 1 + rng() * 0.9));
+  }
+  for (let i = 0; i < 40; i++) g.add(tree(rng, -60 + rng() * 130, -(60 + rng() * 50), 1 + rng() * 0.9));
   for (let i = 0; i < 9; i++) {
     const ang = (i / 9) * 6.28 + rng() * 0.3;
     const hill = mesh(new THREE.SphereGeometry(70 + rng() * 60, 16, 8), std(i % 2 ? '#6c9a58' : '#7fa86a', 1), Math.cos(ang) * 330, -30, Math.sin(ang) * 330, false);
@@ -142,7 +168,8 @@ function ferme() {
     const dist = 52 + rng() * 80;
     const x = Math.cos(ang) * dist * 0.85;
     const z = Math.sin(ang) * dist;
-    if (Math.abs(x) < 36 && Math.abs(z) < 42) continue;
+    // ni dans la cour, ni sur les planches du maraîchage
+    if ((Math.abs(x) < 36 && Math.abs(z) < 42) || (x < -38 && x > -106 && Math.abs(z) < 34)) continue;
     g.add(tree(rng, x, z, 0.9 + rng() * 0.8));
   }
   const hedge = std('#3f7a36', 1);
@@ -180,6 +207,9 @@ function ferme() {
       house.add(block(0.45, 1.3, 0.06, shutter, x - 0.7, 1.0, -2.74));
       house.add(block(0.45, 1.3, 0.06, shutter, x + 0.7, 1.0, -2.74));
     }
+    // appentis à toit bleu au bout de l'aile
+    house.add(block(5, 2.6, 5, wall, 20, 0, 0.3));
+    house.add(block(5.4, 0.2, 5.6, std('#3f5f9a', 0.35, { metalness: 0.4 }), 20, 2.6, 0.3));
     house.position.set(-16, 0, 51);
     half.add(house);
 
@@ -215,23 +245,35 @@ function ferme() {
     tractor.rotation.y = 0.5;
     half.add(tractor);
 
-    // habillage plaqué sur les bâtiments de la cour : porte et fenêtres de la grange, roues de la remorque
-    const barnDoor = std('#5a4634', 0.9);
-    half.add(block(3, 3.4, 0.06, barnDoor, -24.5, 0, 13.96));
-    half.add(block(1, 1, 0.06, std('#2a2f33', 0.4), -20.2, 3.6, 13.96));
-    half.add(block(1, 1, 0.06, std('#2a2f33', 0.4), -27.4, 3.6, 13.96));
-    for (const x of [-5.1, -2.9]) {
-      for (const z of [18.94, 21.26]) {
+    // habillage plaqué sur les bâtiments de la cour : portes et fenêtres, roues de la remorque
+    const door = std('#5a4634', 0.9);
+    const pane = std('#2a2f33', 0.4);
+    half.add(block(0.06, 3.2, 2.8, door, -23.96, 0, 21));          // portail de l'atelier
+    half.add(block(0.06, 1, 1, pane, -23.96, 3.2, 18.4));
+    half.add(block(0.06, 1, 1, pane, -23.96, 3.2, 23.6));
+    half.add(block(1.3, 2.3, 0.06, door, 16.5, 0, 25.96));         // porte de l'aile en pierre
+    half.add(block(1, 1.2, 0.06, pane, 13, 1.3, 25.96));
+    half.add(block(1, 1, 0.06, pane, 13, 3.2, 25.96));
+    half.add(block(1, 1, 0.06, pane, 16.5, 3.2, 25.96));
+    for (const x of [-13.1, -10.9]) {
+      for (const z of [29.94, 32.26]) {
         const wheel = mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.1, 14), tyre, x, 0.46, z);
         wheel.rotation.x = Math.PI / 2;
         half.add(wheel);
       }
     }
+    // roseaux au bord de la mare
+    const reed = std('#6f8f4a', 1);
+    for (let i = 0; i < 14; i++) {
+      const blade = mesh(new THREE.ConeGeometry(0.07, 0.9 + rng() * 0.7, 4), reed, -6.5 + rng() * 13, 0.5, 5.25 + rng() * 0.5, false);
+      blade.rotation.z = (rng() - 0.5) * 0.3;
+      half.add(blade);
+    }
     // le chêne : des masses de feuilles autour de sa ramure, sans dépasser le dessus où l'on peut monter
-    const leaf = std('#4f8a3c', 1);
+    const leaf = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
     for (let i = 0; i < 10; i++) {
       const ang = (i / 10) * 6.28;
-      half.add(mesh(new THREE.IcosahedronGeometry(1.5 + rng() * 0.6, 1), leaf, -22 + Math.cos(ang) * 3.1, 5.9 + rng() * 0.5, 8.6 + Math.sin(ang) * 3.1));
+      half.add(mesh(foliage(rng, 1.6 + rng() * 0.6, '#4f8a3c'), leaf, 15 + Math.cos(ang) * 3.1, 5.9 + rng() * 0.5, 8.2 + Math.sin(ang) * 3.1));
     }
     return half;
   });

@@ -9,6 +9,7 @@ import { SURFACE } from '../config/maps/util.js';
 const PATTERN = {
   lisse: 0, beton: 1, herbe: 2, pierre: 3, bois: 4, tole: 5, parpaing: 6, tuile: 7, foin: 8,
   bache: 9, parquet: 10, cloison: 11, ecran: 12, feuillage: 13, ecorce: 14, tissu: 15, moquette: 16, metal: 17,
+  terre: 18, culture: 19, eau: 20,
 };
 
 // quality : { softPaint, detail } partagés avec les réglages de qualité.
@@ -303,6 +304,27 @@ const SURFACE_GLSL = `
       col = mix(col, vec3(0.42, 0.24, 0.15), smoothstep(0.6, 0.85, fbm(p * 1.3 + 5.0)) * 0.65);
       height = joint * 0.6;
       rough = 0.5;
+    } else if (is(pattern, 18.0)) {
+      // terre battue : taches claires et sombres, cailloux, ornières
+      float stones = lod(smoothstep(0.72, 0.8, vnoise(p * 6.0)), 0.1, 0.16, px);
+      float rut = lod(smoothstep(0.35, 0.5, abs(fract(p.x * 0.55) - 0.5)), 0.7, 0.9, px);
+      col *= (0.8 + 0.35 * fbm(p * 0.5)) * mix(0.88, 1.0, rut);
+      col = mix(col, col * 1.25, stones);
+      height = stones * 0.8 + vnoise(p * 3.0) * 0.3;
+      rough = 1.0;
+    } else if (is(pattern, 19.0)) {
+      // planches de culture : rangs réguliers, feuillage sur les rangs, terre entre deux
+      float row = abs(fract(p.y / 0.7) - 0.5);
+      float plant = lod(smoothstep(0.34, 0.18, row) * (0.55 + 0.45 * vnoise(p * vec2(5.0, 9.0))), 0.4, 0.5, px);
+      col = mix(vec3(0.42, 0.31, 0.2) * (0.85 + 0.25 * n), col * (0.85 + 0.4 * vnoise(p * 7.0)), plant);
+      height = plant * 1.2;
+      rough = 1.0;
+    } else if (is(pattern, 20.0)) {
+      // eau dormante : sombre, lisse, à peine ridée
+      float ripple = fbm(p * 1.4 + 3.0);
+      col *= 0.75 + 0.4 * ripple;
+      height = ripple * 0.5;
+      rough = 0.08;
     } else {
       col *= 0.9 + 0.16 * n;
       rough = 0.8;
