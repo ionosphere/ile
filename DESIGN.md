@@ -1,280 +1,255 @@
 # ILE — Architecture
 
-Version 1 — 10 octobre 2026. Répond à [SPEC.md](SPEC.md).
+Version 2 — 11 octobre 2026. Décrit le jeu tel qu'il est construit ; répond à [SPEC.md](SPEC.md).
 
 ## 1. Choix structurants
 
 | # | Décision | Raison |
 |---|---|---|
-| D1 | **Three.js en modules ES, sans étape de build.** Three.js est copié dans `vendor/` et chargé par importmap. | Site statique (N6). La machine de développement a Node 22 mais pas npm, donc pas de bundler. Serveur local : `python3 -m http.server`. |
-| D2 | **Simulation à pas fixe (60 Hz), rendu interpolé.** | Physique et équilibrage identiques sur un PC à 144 Hz et un téléphone à 30 images/s (N1, N3). |
-| D3 | **La peinture vit dans une grille côté CPU, qui est la seule source de vérité.** La texture affichée en est dérivée. | Le score, la vitesse, les dégâts, l'escalade et les bots lisent tous la peinture : une lecture de grille est instantanée, relire une texture GPU ne l'est pas. |
-| D4 | **Le monde est fait de boîtes alignées sur les axes, plus des rampes.** Pas de moteur physique. | Collisions, lancers de rayon et placement de la peinture deviennent simples et rapides, y compris sur mobile. |
-| D5 | **Joueur et bots sont le même objet `Acteur`, piloté par une `Commande` d'entrée.** Clavier, tactile et IA produisent tous la même structure. | Les bots jouent les trois héroïnes sans code dupliqué (F12). Un futur mode en ligne ou la manette se branchent au même endroit. |
-| D6 | **Personnages, armes, capacités et carte sont des données**, pas du code. | L'équilibrage (N3) se fait en modifiant des chiffres dans un seul fichier. |
-| D7 | **La simulation ne connaît ni le rendu, ni le son, ni l'interface.** Elle émet des événements ; les autres couches écoutent. | La logique de jeu se teste dans Node sans navigateur (`node --test`). |
-| D8 | **Menus et affichage en jeu en HTML/CSS** par-dessus le canvas 3D. | Texte net, mise en page adaptative et boutons tactiles sans effort (F13–F16, N4). |
+| D1 | **Three.js en modules ES, sans étape de build ni dépendance.** Three.js est copié dans `vendor/` et chargé par importmap ; le serveur n'utilise que la bibliothèque standard de Node. | Rien à installer : `node server/index.mjs` suffit. Le solo reste un site statique. |
+| D2 | **Simulation à pas fixe (60 par seconde), rendu interpolé.** | Physique et équilibrage identiques sur un PC à 144 Hz et un téléphone à 30 images par seconde (N1, N3). |
+| D3 | **La peinture vit dans une grille d'octets, seule source de vérité.** La texture affichée en est dérivée. | Le score, la vitesse, les dégâts, l'escalade et les bots lisent tous la peinture : lire une grille est instantané, relire une texture ne l'est pas. |
+| D4 | **Le monde est fait de boîtes alignées sur les axes.** Les pentes sont des escaliers de marches de 30 cm, franchies sans sauter. Pas de moteur physique. | Collisions, lancers de rayon et placement de la peinture restent simples et rapides, y compris sur téléphone. |
+| D5 | **Joueuse et bots sont le même objet `Actor`, piloté par une `Commande`.** Clavier, tactile, bots et réseau produisent tous la même structure. | Les bots jouent les trois héroïnes sans code dupliqué (F12), et le jeu à plusieurs s'est branché au même endroit (F23). |
+| D6 | **Héroïnes, armes, capacités, animaux, cartes et niveaux de difficulté sont des données**, dans `src/config/`. | L'équilibrage (N3) se fait en modifiant des chiffres. |
+| D7 | **La simulation ne connaît ni le rendu, ni le son, ni l'interface, ni le navigateur.** Elle émet des événements ; les autres couches écoutent. | Elle se teste dans Node (`node --test`) et tourne telle quelle sur le serveur de jeu. |
+| D8 | **Menus et affichage en jeu en HTML/CSS** par-dessus le canvas 3D. | Texte net, mise en page adaptative et boutons tactiles (F13–F16, N4). |
+| D9 | **Tout le visuel et tout le son sont fabriqués par le programme** : matières, personnages, animaux, décor, sons. | Aucune image ni modèle à télécharger (N2), et aucune photo dans le jeu (N8). |
+| D10 | **À plusieurs, le serveur fait foi.** Chaque appareil tient une copie du match, prédit sa propre héroïne et interpole les autres. | Un seul arbitre, donc pas de triche par l'appareil ni de désaccord entre joueurs. |
 
 ## 2. Vue d'ensemble
 
 ```
-            ┌────────────────────── ENTRÉES ──────────────────────┐
-            │  clavier/souris     tactile         IA des bots     │
-            └───────┬────────────────┬─────────────────┬──────────┘
-                    └────────── Commande ──────────────┘
-                                     │
-┌────────────────────────── SIMULATION (pas fixe) ──────────────────────────┐
-│  Acteurs ── Armes ── Projectiles ── Capacités ── Vaches ── Match (chrono) │
-│      │                    │                         │                     │
-│      └── Collisions ──────┴──── Grille de peinture ─┘                     │
-│                    (boîtes du niveau)                                     │
-└───────────────┬──────────────────────────────────────┬────────────────────┘
-                │ état (lu à chaque image)             │ événements
-        ┌───────▼────────┐                 ┌───────────▼───────────┐
-        │     RENDU      │                 │  SON · EFFETS · HUD   │
-        │ scène, caméra, │                 │ minimap, jauges,      │
-        │ texture peinte │                 │ écrans de menu        │
-        └────────────────┘                 └───────────────────────┘
+            ┌──────────────────────── ENTRÉES ────────────────────────┐
+            │  clavier/souris     tactile      bots      réseau       │
+            └───────┬───────────────┬───────────┬──────────┬──────────┘
+                    └────────────── Commande ──────────────┘
+                                       │
+┌─────────────────────────── SIMULATION (pas fixe) ───────────────────────────┐
+│  Actrices ─ Armes ─ Projectiles ─ Capacités ─ Vaches ─ Chèvres ─ Match      │
+│      │                  │                        │                          │
+│      └── Collisions ────┴─── Grille de peinture ─┘                          │
+│                  (boîtes du niveau)                                         │
+└───────────────┬───────────────────────────────────────┬─────────────────────┘
+                │ état (lu à chaque image)              │ événements
+        ┌───────▼────────┐                  ┌───────────▼───────────┐
+        │     RENDU      │                  │   SON · EFFETS · HUD  │
+        └────────────────┘                  └───────────────────────┘
 ```
 
-Règle de dépendance : les flèches ne remontent jamais. La simulation n'importe rien du rendu, du son ni de l'interface.
+Les flèches ne remontent jamais : la simulation n'importe rien du rendu, du son ni de l'interface.
+
+En solo, la simulation tourne dans le navigateur. À plusieurs, elle tourne sur le serveur, et le navigateur affiche une copie (section 5).
 
 ## 3. Organisation des fichiers
 
 ```
 ile/
 ├── index.html
-├── vendor/three/            Three.js (copie figée)
-├── assets/                  portraits, sons, polices
 ├── styles/ui.css
+├── vendor/three/            Three.js r160 (copie figée)
+├── Dockerfile               image de mise en ligne
+├── server/                  serveur Node, sans dépendance
+│   ├── index.mjs            fichiers du site, WebSockets sur /jeu, garde-fous
+│   ├── ws.mjs               protocole WebSocket minimal
+│   └── room.mjs             un salon et son match
 ├── src/
-│   ├── main.js              démarrage, machine à états des écrans
+│   ├── main.js              démarrage, écrans, boucle, assemblage d'une partie
 │   ├── config/
-│   │   ├── tuning.js        physique, peinture, match (toutes les constantes)
-│   │   ├── characters.js    Ines, Louisa, Emma
+│   │   ├── tuning.js        physique, match, visée, tactile, peinture, équipes, difficulté
+│   │   ├── characters.js    Ines, Louisa, Emma : stats, apparence (`look`), réglages de bot
 │   │   ├── weapons.js       double pistolet, tir chargé, rouleau
 │   │   ├── specials.js      Charge, Plan de bataille, Cercle d'entraide
-│   │   └── maps/ferme.js    boîtes, rampes, bases, trajets des vaches, points de passage
-│   ├── core/                boucle à pas fixe, bus d'événements, maths, réglages
+│   │   ├── animals.js       vaches, lâcher de chèvres
+│   │   └── maps/            ferme.js, salon.js, enclos.js (carte d'essai des tests), util.js
+│   ├── core/                boucle à pas fixe, événements, Commande, réglages enregistrés
 │   ├── sim/                 AUCUNE dépendance au navigateur
 │   │   ├── world.js         état complet d'un match
-│   │   ├── level.js         boîtes + index spatial, lancers de rayon
+│   │   ├── level.js         boîtes, lancers de rayon, collisions
 │   │   ├── paint.js         grille de peinture, score
-│   │   ├── actor.js         déplacement, formes, vie, peinture, réapparition
+│   │   ├── actor.js         déplacement, formes, vie, réservoir, réapparition
 │   │   ├── weapons.js       logique de tir par type d'arme
 │   │   ├── projectiles.js   trajectoires, impacts
 │   │   ├── specials.js      les trois capacités
-│   │   ├── cows.js          déplacement et état peint des vaches
-│   │   └── match.js         décompte, chrono, fin, résultat
+│   │   ├── cows.js          vaches
+│   │   ├── goats.js         lâcher de chèvres
+│   │   └── match.js         décompte, chrono, résultat
 │   ├── ai/
-│   │   ├── nav.js           graphe de points de passage, recherche de chemin
-│   │   └── bot.js           choix d'objectif, visée, production de Commande
-│   ├── input/
-│   │   ├── keyboard.js      clavier + souris (verrouillage du pointeur)
-│   │   └── touch.js         joystick virtuel, zone de visée, boutons
+│   │   ├── nav.js           grille de navigation à étages, calculée d'après le niveau ; A*
+│   │   └── bot.js           peindre, attaquer, recharger ; production de Commande
+│   ├── net/
+│   │   ├── protocol.js      format des messages, partagé avec le serveur
+│   │   ├── client.js        liaison WebSocket
+│   │   └── replica.js       copie locale d'un match joué sur le serveur
+│   ├── input/               keyboard.js (clavier, souris), touch.js (manette virtuelle, boutons)
 │   ├── render/
-│   │   ├── renderer.js      scène, lumières, niveaux de qualité
-│   │   ├── levelView.js     maillages du niveau + matériau peint
+│   │   ├── renderer.js      scène, ciel, lumières, ombres
+│   │   ├── post.js          finition de l'image (halo, vignettage)
+│   │   ├── quality.js       niveaux de qualité, baisse automatique
+│   │   ├── levelView.js     maillage du niveau, matières calculées, peinture
 │   │   ├── paintTexture.js  grille → texture, par zones modifiées
-│   │   ├── actorView.js     héroïnes, chats, vaches
-│   │   ├── camera.js        caméra à l'épaule
-│   │   └── fx.js            éclaboussures, traînées, zones de capacité
-│   ├── audio/audio.js       Web Audio
-│   └── ui/                  menu, sélection, HUD, minimap, résultats, tutoriel, réglages
-└── tests/                   tests Node de src/sim et src/ai
+│   │   ├── human.js         héroïnes : corps articulé, tenue, coiffure, animation
+│   │   ├── models.js        chats, vaches, chèvres
+│   │   ├── actorView.js     héroïne ou chat, arme, repères
+│   │   ├── animalViews.js   vaches et chèvres
+│   │   ├── decor.js         campagne autour de la ferme, hall du salon
+│   │   ├── signs.js         enseignes des stands
+│   │   ├── projectileView.js, beamView.js, splash.js
+│   │   └── camera.js        caméra à l'épaule
+│   ├── audio/               audio.js (sons synthétisés), wire.js (branchement sur les événements)
+│   └── ui/                  hud.js, minimap.js, select.js, lobby.js, panels.js (tutoriel, réglages)
+├── tests/                   tests Node : simulation, bots, héroïnes, cartes, réseau
+├── tools/                   balance.mjs (matchs de bots en accéléré), avatars.html (planche des héroïnes)
+└── doc/                     photos de référence — jamais publiées, absentes du dépôt
 ```
 
 ## 4. Composants clés
 
-### 4.1 Boucle et états du jeu
-
-Machine à états des écrans :
+### 4.1 Boucle et écrans
 
 ```
-Démarrage → Menu ⇄ Réglages / Tutoriel
-              ↓
-          Sélection du personnage → Match → Résultats → Menu
-                                     │
-                    Décompte → En jeu → Terminé      (Pause possible en jeu)
+Sélection (carte, difficulté, héroïne) ──► Match ──► Résultats ──► Sélection
+        │                                    ▲
+        └─► Salon (à plusieurs) ─────────────┘──► Résultats ──► Salon
+Tutoriel et Réglages s'ouvrent par-dessus l'écran courant. Pause possible en match.
 ```
 
-À chaque image : lire les entrées → avancer la simulation par pas de 1/60 s (0 à 4 pas selon le temps écoulé) → dessiner en interpolant entre les deux derniers états. La pause arrête simplement les pas.
+À chaque image : lire les entrées, avancer la simulation par pas de 1/60 s (0 à 4 pas), dessiner en interpolant entre les deux derniers états. En solo, la pause arrête les pas ; à plusieurs, le match continue et la joueuse en pause ne fait rien.
 
-### 4.2 Commande (le point de jonction, D5)
-
-Une `Commande` décrit ce qu'un acteur veut faire pendant un pas :
+### 4.2 Commande (D5)
 
 | Champ | Contenu |
 |---|---|
-| `move` | direction voulue (x, z), longueur 0 à 1 |
-| `yaw`, `pitch` | orientation de la visée |
-| `fire`, `fireReleased` | tir maintenu / relâché (le relâchement déclenche le tir chargé) |
+| `move` | direction voulue (x : droite, z : avant), longueur 0 à 1 |
+| `yaw`, `pitch` | orientation du regard |
+| `fire` | tir maintenu (le relâchement déclenche le tir chargé) |
 | `cat` | forme chat maintenue |
-| `jump` | saut |
-| `special` | déclenchement de la capacité |
+| `jump` | saut ; en tirant au double pistolet, esquive |
+| `special` | capacité de l'héroïne |
+| `goats` | lâcher de chèvres |
 
-Trois producteurs : `keyboard.js`, `touch.js`, `bot.js`. L'acteur ne sait pas lequel le pilote.
+### 4.3 Peinture (D3)
 
-### 4.3 Peinture (D3) — le cœur du jeu
+**Grille.** Chaque face peignable des boîtes (dessus, et côtés pour celles qui le permettent) occupe un rectangle dans un atlas unique. Une cellule mesure 12,5 cm et contient un octet : 0 vierge, 1 ou 2 l'équipe. Seuls les dessus comptent pour le score ; les cellules recouvertes par une autre boîte ne comptent pas et ne se peignent pas.
 
-**Grille.** Chaque face peignable (dessus et côtés des boîtes, rampes) reçoit un rectangle dans un atlas unique. Une cellule mesure environ 12 cm et contient un octet : 0 = vierge, 1 = équipe A, 2 = équipe B. Un second tableau ne garde que les cellules qui comptent pour le score (le sol praticable, pas les murs).
+**Opérations.** `splat(x, y, z, rayon, équipe, graine)` peint une tache irrégulière sur toutes les faces proches et renvoie la surface gagnée, qui alimente les jauges. `teamAt(...)` donne l'équipe sous un point. `coverage()` donne les parts de terrain, tenues à jour à chaque tache.
 
-**Opérations.**
-- `splat(position, normale, rayon, équipe, forme)` : peint un disque irrégulier (ou une bande pour le rouleau) et renvoie la surface gagnée, qui alimente la jauge de capacité (F11).
-- `teamAt(position, normale)` : équipe sous un point. Utilisé par les acteurs (vitesse, dégâts, recharge, escalade) et par les bots.
-- `coverage()` : pourcentages par équipe, tenus à jour à chaque `splat` et non recalculés.
+**Affichage.** La grille est copiée dans une texture, uniquement sur le rectangle modifié. Le matériau du niveau la lit, lisse et fait onduler les bords, et rend la peinture brillante, avec un bourrelet sur son pourtour.
 
-**Affichage.** La grille est copiée dans une texture, uniquement sur les rectangles modifiés pendant l'image. Le matériau du niveau lit cette texture avec un second jeu de coordonnées et lisse les bords pour obtenir des taches arrondies plutôt que des carrés. La résolution de la texture dépend du niveau de qualité ; la grille de jeu, elle, ne change jamais (N1 sans toucher à N3).
-
-**Vaches (F18).** Une vache n'est pas dans la grille. Elle porte une seule valeur `équipe`, modifiée par tout impact, et ajoute une surface fixe au score de son propriétaire.
+**Vaches.** Une vache n'est pas dans la grille : elle porte une équipe et ajoute une surface fixe au score de celle-ci (`paint.extra`).
 
 ### 4.4 Niveau et collisions (D4)
 
-`level.js` charge la liste de boîtes et de rampes de `maps/ferme.js` et les range dans une grille spatiale 2D. Il offre : lancer de rayon (projectiles, visée, ligne de vue des bots), résolution capsule-contre-boîtes (acteurs, vaches), et requête de sol sous un point.
+Une carte est une liste de boîtes colorées, décrite pour une moitié et complétée par symétrie. La couleur d'une boîte désigne aussi sa matière (béton, pierre, tuiles…). `level.js` offre le lancer de rayon et la collision d'un cylindre contre les boîtes, avec franchissement des marches. Les toits sont des gradins de boîtes : on peut y monter et les peindre.
 
-La grange, les enclos, les bottes de foin, le tracteur et le silo (F19) sont tous des assemblages de boîtes pour la collision, habillés par des maillages décoratifs côté rendu.
+### 4.5 Actrice
 
-### 4.5 Acteur
-
-Un acteur porte : position, vitesse, forme (`humaine` ou `chat`), vie, réservoir de peinture, jauge de capacité, équipe, référence à son personnage, état de son arme, état de réapparition.
-
-À chaque pas : lire la `Commande` → choisir la forme → calculer la vitesse cible selon la forme et la peinture sous les pieds → intégrer et résoudre les collisions → appliquer dégâts de peinture adverse, régénération et recharge → faire tirer l'arme → mettre à jour la capacité.
-
-Règles de forme (F6–F8) :
+À chaque pas : lire la Commande, mettre à jour capacité et chèvres, choisir la forme, faire tirer l'arme, calculer la vitesse selon la forme et la peinture sous les pieds, déplacer et résoudre les collisions, puis mettre à jour réservoir et vie.
 
 | Situation | Effet |
 |---|---|
-| Chat dans sa peinture | vitesse maximale, recharge rapide, peu visible |
-| Chat contre un mur peint à sa couleur | monte le long du mur |
+| Chat dans sa peinture | vitesse maximale, recharge rapide, vie qui remonte vite, peu visible |
+| Chat contre un mur peint à sa couleur | grimpe |
 | Chat hors peinture | lent |
-| N'importe quelle forme dans la peinture adverse | très lent, dégâts plafonnés |
+| Dans la peinture adverse | très lent, dégâts plafonnés |
 | Forme humaine | peut tirer ; recharge lente après un délai |
 
-### 4.6 Personnages, armes, capacités (D6)
-
-`characters.js` ne contient que des données : nom, portrait, multiplicateurs (vitesse, vie, taille), identifiant d'arme, identifiant de capacité, poids de comportement pour l'IA.
+### 4.6 Héroïnes, armes, capacités, chèvres (D6)
 
 | | Ines | Louisa | Emma |
 |---|---|---|---|
 | Vitesse | ×1,0 | ×1,15 | ×0,88 |
 | Vie | 120 | 80 | 140 |
 | Taille | ×1,0 | ×1,0 | ×1,15 |
-| Arme | `double` | `charge` | `rouleau` |
-| Capacité | `ruee` | `plan` | `cercle` |
+| Arme | double pistolet (tir automatique, esquive) | tir chargé (trait instantané) | rouleau (bande large, gerbe à l'appui) |
+| Capacité | Charge : ruée invulnérable qui peint et bouscule | Plan de bataille : révèle les adversaires | Cercle d'entraide : soigne et recharge les alliées |
 
-Ces valeurs sont des points de départ pour l'équilibrage.
+Deux jauges se remplissent en peignant : celle de la capacité (150 m²) et celle du lâcher de chèvres (170 m²), commun aux trois. Les trois chèvres courent 10 secondes, peignent sous leurs pattes et grimpent aux murs.
 
-**Armes** : trois types, chacun une fonction de `sim/weapons.js` paramétrée par `config/weapons.js`.
-- `double` : tir automatique à courte portée, dispersion, pas d'esquive latérale sur double appui.
-- `charge` : la puissance, la portée et la largeur du trait de peinture croissent avec la durée de maintien ; tir instantané en ligne droite au relâchement.
-- `rouleau` : en avançant, peint une bande large et blesse au contact ; un appui bref projette une gerbe devant soi.
+### 4.7 Bots (F12, F22)
 
-**Capacités** : chacune a `start`, `update`, `end` et une durée.
-- `ruee` (Ines) : déplacement forcé en ligne droite, invulnérabilité, traînée peinte, recul des ennemis touchés.
-- `plan` (Louisa) : pose un drapeau `révélé` sur tous les ennemis ; le rendu et la minimap l'utilisent pour les afficher à travers les murs.
-- `cercle` (Emma) : zone attachée à Emma ; chaque pas, soigne les alliés à l'intérieur et recharge leur peinture.
+**Navigation.** `nav.js` calcule seul, d'après les boîtes du niveau, une grille de cases praticables sur plusieurs étages, n'en garde que la plus grande partie d'un seul tenant, et y cherche les chemins par A*.
 
-### 4.7 IA des bots (F12)
+**Décision.** Trois modes : peindre (vers une zone qui n'est pas à son équipe, en se répartissant entre coéquipières), attaquer (une adversaire visible et à portée de son arme), recharger (réservoir ou vie bas : rejoindre sa peinture en chat). Les réglages `ai` de chaque héroïne lui donnent son caractère : Ines va au contact, Louisa garde ses distances, Emma reste près des alliées.
 
-**Navigation.** `ferme.js` fournit un graphe de points de passage posés à la main (y compris les rampes et les murs à escalader). Recherche de chemin A* sur ce graphe, puis déplacement direct vers le point suivant avec évitement local.
+**Niveau.** `DIFFICULTY` (dans `tuning.js`) règle la précision, le temps de réaction, la dispersion du tir, la part du temps passée à hésiter et l'attente avant d'utiliser une jauge pleine. Le choix du joueur s'applique aux adversaires ; les coéquipières jouent en Normale.
 
-**Décision.** Toutes les demi-secondes environ, le bot note quelques objectifs et prend le meilleur :
+### 4.8 Animaux
 
-| Objectif | Monte quand… |
-|---|---|
-| Peindre | une zone proche est vierge ou adverse |
-| Attaquer | un ennemi est visible et à portée de son arme |
-| Se replier | vie ou peinture basse → rejoint sa peinture en forme chat |
-| Soutenir | un allié proche est blessé (fort pour Emma) |
-| Capacité | la jauge est pleine et la situation s'y prête |
-
-Les poids par personnage (`characters.js`) donnent aux bots le caractère de leur héroïne : Ines attaque, Louisa garde ses distances, Emma reste près des alliés.
-
-**Crédibilité.** Temps de réaction, erreur de visée et champ de vision limités, réglés par un niveau de difficulté unique.
-
-### 4.8 Vaches
-
-Chaque vache suit une boucle de points de passage définie dans la carte, lentement, avec des pauses. Les trajets évitent par construction les bases et les passages uniques ; si une vache est bloquée par un acteur, elle attend plutôt que de pousser (critère d'acceptation « ne bloque jamais durablement »).
+Les vaches suivent lentement une boucle de points définie dans la carte, avec des pauses, et attendent plutôt que de pousser quelqu'un. Elles arrêtent les tirs et prennent la couleur de la dernière équipe qui les a touchées.
 
 ### 4.9 Entrées
 
-**Clavier/souris (F14).** ZQSD et flèches, souris pour viser avec verrouillage du pointeur, clic gauche pour tirer, Maj pour la forme chat, Espace pour sauter, E pour la capacité. Touches reconfigurées selon la position physique, donc compatibles AZERTY et QWERTY.
+**Clavier/souris.** ZQSD ou flèches, souris capturée pour viser, clic pour tirer, Maj forme chat, Espace saut, E capacité, F chèvres. Les touches sont lues par position physique, donc AZERTY et QWERTY fonctionnent sans réglage.
 
-**Tactile (F15).** Moitié gauche : joystick virtuel flottant. Moitié droite : glisser pour viser. Boutons : tir, chat, saut, capacité. Deux aides réservées au tactile : légère assistance à la visée et, en option, tir automatique quand un ennemi est dans le viseur.
+**Tactile.** Manette virtuelle à gauche, glisser à droite pour viser, boutons pour le reste. Deux aides : le viseur est légèrement attiré vers les adversaires, et le tir peut partir seul quand l'une d'elles est dedans.
 
-Le mode est détecté au premier contact (touche ou doigt) et peut basculer en cours de partie.
+Le mode bascule au premier doigt posé ou à la première touche.
 
-### 4.10 Rendu
+### 4.10 Rendu (D9)
 
-- **Caméra** à l'épaule, qui évite les murs par lancer de rayon et s'abaisse en forme chat.
-- **Héroïnes** : modèles stylisés à faible nombre de polygones, construits à partir d'un gabarit commun et de paramètres par personnage (taille, coiffure, couleurs, accessoire). Les portraits 2D de l'écran de sélection sont des dessins d'après photos (N8) ; aucune photo n'entre dans le dépôt.
-- **Chats** : un modèle commun, teinté et accessoirisé selon l'héroïne (F17).
-- **Trois niveaux de qualité** (N1) : résolution d'affichage, ombres, résolution de la texture de peinture, nombre de particules. Choix automatique au démarrage selon l'appareil, puis ajustement si la cadence chute ; réglable à la main.
+- **Lumière** : soleil avec ombres portées, ciel à nuages calculé, reflets tirés d'une image floue du ciel, tons ajustés à la façon d'une pellicule.
+- **Matières** : dessinées par le programme d'affichage du niveau (béton rainuré, moellons, planches, tôle, tuiles, parquet…), estompées au loin pour ne pas scintiller ; les murs s'assombrissent vers leur pied.
+- **Héroïnes** (`human.js`) : corps aux proportions réalistes, articulé aux hanches, genoux, épaules et coudes. `look` décrit la coiffure, les lunettes, le haut, la coupe du pantalon et les chaussures, d'après les photos. Le visage est le même pour les trois (N8). L'équipe se lit sur le foulard, les brassards, les gants, le réservoir, l'arme et un repère au-dessus de la tête. Les formes fixes d'un même membre sont fusionnées en un seul maillage par matière.
+- **Animation** : calculée, par couches (foulée, rotation du bassin, buste, bras qui tiennent l'arme, tête, cheveux). Les chèvres galopent, les vaches broutent, les chats trottent et bondissent.
+- **Qualité** : Basse (aspect simple), Moyenne (matières, ombre de contact sous les personnages), Haute (ombres portées, halo et vignettage). Choix selon l'appareil, baisse automatique si l'affichage rame, réglable à la main.
 
 ### 4.11 Interface, son, sauvegarde
 
-- **HUD** (F13) : chrono, barre de score des deux équipes, jauge de peinture, jauge de capacité, minimap dessinée sur un petit canvas 2D à partir de la grille de peinture.
-- **Écrans** : accueil, sélection (trois cartes personnage : portrait, rôle, arme, capacité), réglages, tutoriel en quelques panneaux, résultats avec pourcentages (F3).
-- **Son** : Web Audio, sons courts déclenchés par les événements de la simulation, démarré au premier geste de l'utilisateur.
-- **Sauvegarde** : réglages et dernier personnage choisi dans `localStorage`. Aucun compte, aucune donnée envoyée (N2, N6).
-- **Textes** en français, regroupés dans un seul fichier.
+- **HUD** : chrono, score des deux équipes, réservoir, jauges de capacité et de chèvres, minimap tirée de la grille de peinture, annonces.
+- **Écrans** : sélection (cartes, difficulté, trois fiches d'héroïne à portrait dessiné), salon du jeu à plusieurs, pause, résultats, tutoriel, réglages.
+- **Son** : Web Audio, sons synthétisés déclenchés par les événements, atténués avec la distance.
+- **Sauvegarde** : réglages, dernière héroïne, dernière carte et prénom dans le stockage du navigateur. Aucun compte.
 
-## 5. Événements émis par la simulation
+## 5. Jeu à plusieurs (D10)
+
+- **Serveur** : `index.mjs` distribue `index.html`, `styles/`, `src/` et `vendor/`, rien d'autre, et accepte les WebSockets sur `/jeu`. `room.mjs` tient un salon (joueuses, équipes, carte, difficulté, hôte) et son match : un `World`, des `Bot` aux places libres, 60 pas par seconde.
+- **Protocole** : messages JSON. Chaque joueuse envoie une Commande numérotée par pas. Le serveur envoie 20 instantanés par seconde : état des actrices, des chèvres et des vaches, plus les taches de peinture, les projectiles tirés et les événements survenus depuis le précédent.
+- **Peinture** : le serveur n'envoie pas la grille mais la liste des taches, arrondies avant d'être peintes. Chaque appareil les rejoue dans le même ordre : sa grille reste identique à celle du serveur, ce qu'un test vérifie.
+- **Copie locale** (`replica.js`) : un `World` dont les actrices sont des marionnettes. Le rendu, le son et l'interface le lisent exactement comme en solo. Notre héroïne est déplacée tout de suite par prédiction, puis recalée à chaque instantané : retour à l'état du serveur, rejeu des commandes qu'il n'a pas encore traitées, écart visuel résorbé en douceur. Les autres sont interpolées avec deux instantanés de retard. Les projectiles volent localement, pour l'œil seulement.
+- **Ce qui vient d'Internet est vérifié** : forme et bornes des commandes, valeurs autorisées pour la carte, l'héroïne et la difficulté, prénoms nettoyés, taille et débit des messages, origine de la page, nombre de salons et de connexions.
+
+Limites assumées : un seul processus (salons en mémoire) ; pas de reprise après déconnexion (un bot prend la place) ; pas d'arrivée en cours de match (on attend le suivant au salon) ; pas de compensation de latence pour les tirs (le serveur juge avec la position qu'il connaît) ; ni compte ni modération.
+
+## 6. Événements émis par la simulation
 
 | Événement | Écouté par |
 |---|---|
-| `tir`, `impact` | effets, son |
-| `peinture` (rectangle modifié) | texture de peinture, minimap |
-| `touché`, `éliminé`, `réapparu` | effets, son, HUD |
-| `capacité:prête`, `capacité:début`, `capacité:fin` | HUD, effets, son |
-| `vache:peinte` | rendu des vaches, son |
-| `match:décompte`, `match:début`, `match:fin` | écrans, son |
+| `tir`, `trait`, `impact` | effets, son |
+| `esquive`, `reservoir_vide` | son |
+| `touche`, `elimine`, `reapparu` | effets, son, annonces |
+| `capacite:debut`, `capacite:fin` | annonces, son |
+| `chevres:lachees` | annonces, son |
+| `vache:peinte` | effets, son |
+| `match:debut`, `match:fin` | écrans, son |
 
-## 6. Couverture des exigences
+À plusieurs, le serveur relaie ces événements dans les instantanés et la copie locale les réémet.
 
-| Exigences | Composant |
+## 7. Couverture des exigences
+
+| Exigences | Composants |
 |---|---|
-| F1–F4 match | `sim/match.js`, `sim/actor.js` (réapparition), `ui/results` |
-| F5–F8 peinture | `sim/paint.js`, `sim/actor.js`, `render/paintTexture.js` |
-| F9–F12 personnages | `config/characters.js`, `sim/weapons.js`, `sim/specials.js`, `ai/bot.js`, `ui/select` |
+| F1–F4 match | `sim/match.js`, `sim/actor.js`, `ui/hud.js` |
+| F5–F8 peinture | `sim/paint.js`, `sim/actor.js`, `render/paintTexture.js`, `render/levelView.js` |
+| F9–F12 héroïnes | `config/characters.js`, `sim/weapons.js`, `sim/specials.js`, `ai/bot.js`, `ui/select.js` |
 | F13–F16 interface | `ui/`, `input/` |
-| F17–F20 univers | `render/actorView.js`, `sim/cows.js`, `config/maps/ferme.js` |
-| N1 performance | pas fixe (D2), boîtes (D4), niveaux de qualité |
-| N2 chargement | pas de build, peu de ressources, modèles construits par le code |
-| N3 équilibrage | données centralisées (D6), simulation testable (D7) |
-| N6 statique | D1 |
+| F17–F21 univers | `render/human.js`, `render/models.js`, `sim/cows.js`, `sim/goats.js`, `config/maps/` |
+| F22 difficulté | `config/tuning.js` (`DIFFICULTY`), `ai/bot.js` |
+| F23 jeu à plusieurs | `server/`, `src/net/`, `ui/lobby.js` |
+| N1 performance | pas fixe (D2), boîtes (D4), `render/quality.js` |
+| N2 chargement | pas de build, rien à télécharger hors code (D1, D9) |
+| N3 équilibrage | données centralisées (D6), `tools/balance.mjs` |
+| N6 hébergement | D1, `Dockerfile` |
+| N8 vie privée | D9, `.gitignore`, `.dockerignore`, liste de fichiers distribués du serveur |
 
-Extensions prévues sans refonte : manette (un quatrième producteur de `Commande`), autres cartes (un fichier de plus dans `maps/`), en ligne (remplacer les bots par des `Commande` reçues du réseau).
+## 8. Vérification
 
-## 7. Risques
+- `node --test` : 59 tests sur la simulation, les bots, les héroïnes, les cartes et le réseau (dont un match complet serveur + copie locale, et un salon par vraie connexion).
+- `node tools/balance.mjs` : matchs de bots en accéléré pour comparer les héroïnes et mesurer chaque difficulté.
+- `tools/avatars.html` : planche des trois héroïnes, pour régler leur apparence.
 
-| Risque | Parade |
-|---|---|
-| La peinture coûte trop cher sur téléphone | Grille CPU légère ; seule la résolution de la texture baisse. À valider en premier. |
-| L'escalade des murs en forme chat est délicate à rendre agréable | Limitée aux faces verticales de boîtes ; prototypée dès l'étape 2. |
-| Bots peu crédibles ou coincés | Points de passage posés à la main, détection de blocage avec recalcul du chemin. |
-| Viser au tactile est difficile | Assistance à la visée et tir automatique optionnel. |
-| Trois héroïnes déséquilibrées | Matchs bots contre bots lancés en accéléré dans Node pour comparer les taux de victoire. |
+Non couvert par des tests automatiques : l'affichage lui-même, la fluidité sur de vrais appareils, la sensation de jeu avec une latence réelle.
 
-## 8. Ordre de construction
+## 9. Pistes
 
-1. **Socle** : boucle à pas fixe, niveau en boîtes, un acteur qui court et saute, caméra, clavier/souris.
-2. **Peinture** : grille, texture, une arme, forme chat, nage et escalade. C'est le point de validation du jeu : si cette étape est agréable, le reste suit.
-3. **Match** : équipes, vie, élimination, réapparition, chrono, score, résultats.
-4. **Bots** : navigation puis décision.
-5. **Trois héroïnes** : les trois armes, les trois capacités, écran de sélection.
-6. **Ferme** : carte définitive, vaches, décor.
-7. **Tactile** et niveaux de qualité, tests sur téléphone.
-8. **Finition** : avatars d'après photos, son, tutoriel, réglages, équilibrage.
-
-## 9. Jeu à plusieurs (ajouté après la version solo)
-
-La simulation n'ayant aucune dépendance au navigateur, elle tourne telle quelle sur un serveur Node, qui fait foi.
-
-- **Serveur** (`server/`) : `index.mjs` distribue le site et accepte les WebSockets sur `/jeu` ; `ws.mjs` est une implémentation minimale du protocole, sans dépendance ; `room.mjs` tient un salon et son match (un `World`, des `Bot` aux places libres, 60 pas par seconde).
-- **Protocole** (`src/net/protocol.js`, partagé) : messages JSON. Chaque joueur envoie une Commande numérotée par pas. Le serveur envoie 20 instantanés par seconde : état des actrices, chèvres et vaches, plus les taches de peinture, projectiles tirés et événements survenus depuis le précédent.
-- **Peinture** : le serveur n'envoie pas la grille, mais la liste des taches, arrondies avant d'être peintes. Chaque appareil les rejoue dans le même ordre sur sa propre grille, qui reste identique à celle du serveur (vérifié par un test).
-- **Copie locale** (`src/net/replica.js`) : un `World` dont les actrices sont des « marionnettes ». Le rendu, le son et l'interface le lisent exactement comme en solo. Notre héroïne est déplacée tout de suite par prédiction, puis recalée à chaque instantané (retour à l'état du serveur, puis rejeu des commandes qu'il n'a pas encore traitées) ; les autres sont interpolées avec deux instantanés de retard. Les projectiles volent localement pour l'œil seulement.
-- **Ce qui vient d'Internet est vérifié** : forme et bornes des commandes, valeurs autorisées pour carte, héroïne et difficulté, prénoms nettoyés, taille et débit des messages, nombre de salons et de connexions.
-
-Limites assumées : un seul processus (salons en mémoire), pas de reprise après déconnexion (un bot prend la place), pas d'arrivée en cours de match (on attend le suivant au salon), pas de compensation de latence pour les tirs (le serveur juge avec la position qu'il connaît).
+Manette (un producteur de Commande de plus), autres cartes (un fichier dans `maps/`), reprise après déconnexion, compensation de latence pour les tirs, plusieurs processus serveur.

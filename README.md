@@ -1,6 +1,8 @@
 # ILE
 
-Jeu de peinture à la ferme, en 3D dans le navigateur : Ines, Louisa et Emma, 4 contre 4 avec des bots, sur deux cartes.
+Jeu de peinture à la ferme, en 3D dans le navigateur : Ines, Louisa et Emma, 4 contre 4 sur deux cartes, seul avec des bots ou à plusieurs.
+
+En ligne : https://ile.ekylibre.cloud
 
 - [SPEC.md](SPEC.md) : ce que le jeu doit faire.
 - [DESIGN.md](DESIGN.md) : comment il est construit.
@@ -28,7 +30,7 @@ Le match est simulé sur le serveur (`server/room.mjs`), qui envoie 20 instantan
 ## Tests et équilibrage
 
 ```
-node --test                       # simulation, bots, cartes
+node --test                       # simulation, bots, héroïnes, cartes, réseau
 node tools/balance.mjs 16 120     # matchs de bots en accéléré : qui gagne, qui peint, qui élimine, et l'effet de chaque difficulté
 ```
 
@@ -40,7 +42,7 @@ node tools/balance.mjs 16 120     # matchs de bots en accéléré : qui gagne, q
 | Les trois héroïnes (stats, apparence, comportement des bots) | `src/config/characters.js` |
 | Armes | `src/config/weapons.js` |
 | Capacités spéciales | `src/config/specials.js` |
-| Vaches et chèvres | `src/config/animals.js` |
+| Vaches et chèvres (dont la vitesse de remplissage de la jauge des chèvres) | `src/config/animals.js` |
 | Cartes | `src/config/maps/` |
 
 Dans la console du navigateur, `ile.start('emma', 'salon')` lance un match sans passer par les menus.
@@ -53,7 +55,7 @@ Tout est fabriqué par le programme, sans image ni modèle à télécharger : le
 
 ## Mise en ligne
 
-Le dépôt contient un `Dockerfile` : l'image lance `node server/index.mjs` sur le port 8080 et ne contient que le jeu.
+Le jeu est déployé sur https://ile.ekylibre.cloud avec Dokploy, à partir de ce dépôt. Le dépôt contient un `Dockerfile` : l'image lance `node server/index.mjs` sur le port 8080 et ne contient que le jeu.
 
 Avec Dokploy : créer une application à partir du dépôt, type de construction « Dockerfile », port 8080, puis lui attacher un domaine. Les WebSockets passent par le même port et le même domaine (chemin `/jeu`) ; en HTTPS le jeu utilise `wss` de lui-même. `/sante` renvoie le nombre de salons et de connexions.
 
@@ -62,4 +64,4 @@ Limites à connaître :
 - Les salons vivent dans la mémoire d'un seul processus : une seule instance, et un redéploiement interrompt les matchs en cours.
 - Garde-fous intégrés : 100 salons, 400 connexions, 12 connexions par adresse, messages limités en taille et en débit. Il n'y a ni compte ni modération : toute personne qui a l'adresse peut créer un salon.
 
-**Ne jamais publier `doc/`** : il contient les photos de référence de personnes réelles. Le `.gitignore` et le `.dockerignore` l'excluent, et le serveur refuse de le distribuer. `.claude/` est exclu de la même façon.
+**Ne jamais publier `doc/`** : il contient les photos de référence de personnes réelles. Le dossier n'existe que sur le poste de développement : le `.gitignore` et le `.dockerignore` l'excluent, et le serveur refuse de le distribuer. `.claude/` est exclu de la même façon.
