@@ -66,6 +66,23 @@ function boot() {
   const settings = new Settings();
   setPalette(settings.get('colorblind'));
 
+  // iOS ignore l'interdiction de zoomer écrite dans la page : on refuse ses gestes de zoom un par un
+  for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+  }
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  // après une saisie, la page peut rester zoomée ou décalée : on la remet d'aplomb
+  const viewport = document.querySelector('meta[name="viewport"]');
+  document.addEventListener('focusout', () => {
+    const content = viewport.content;
+    viewport.content = `${content}, minimum-scale=1`;
+    requestAnimationFrame(() => {
+      viewport.content = content;
+      scrollTo(0, 0);
+      dispatchEvent(new Event('resize'));
+    });
+  });
+
   const coarse = matchMedia('(pointer: coarse)').matches;
   const { renderer, scene, camera, setTheme, setShadows, setPost, render } = createRenderer($('app'), { coarse });
   const quality = new Quality(renderer, { coarse });

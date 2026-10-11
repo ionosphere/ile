@@ -14,7 +14,18 @@ html, body {
   color: var(--ink);
   user-select: none;
   -webkit-user-select: none;
+  /* téléphones : ni zoom au pincement ou au double appui, ni défilement, ni menu d'appui long */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
+body { position: fixed; inset: 0; height: auto; }
+/* les menus défilent verticalement, sans zoom pour autant */
+.overlay, .overlay * { touch-action: pan-y; }
+/* en dessous de 16 px, iOS zoome sur un champ de saisie dès qu'on le touche ; il lui faut aussi le droit de sélectionner */
+input, select, textarea { font-size: 16px; user-select: text; -webkit-user-select: text; }
 
 #app { position: fixed; inset: 0; }
 #app canvas { display: block; width: 100%; height: 100%; outline: none; }
